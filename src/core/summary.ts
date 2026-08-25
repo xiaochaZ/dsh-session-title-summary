@@ -16,9 +16,9 @@ export interface SummaryResult {
   title: string
 }
 
-/** Bounds for one generated summary (keeps the rolling file small but lets
- * the full session outline fit). */
-export const SUMMARY_MAX_CHARS = 6000
+/** Bounds for one generated summary (keeps the rolling file compact; the
+ * outline covers the whole session but stays terse). */
+export const SUMMARY_MAX_CHARS = 3000
 
 /** Bound the model's total output budget before parsing. */
 export const RESULT_MAX_CHARS = 8192
@@ -44,9 +44,9 @@ export function buildSystemPrompt(targetWords: number, targetCjkCharacters: numb
     '  Example lines: "插件开发 - 修复摘要格式", "照片归档 - 解压与分类". ',
     '  Group lines by major topic: lines of the same major topic stay together, and different major topics ',
     '  are separated by a blank line. ',
-    '  Keep every topic that still matters from the old summary (one bullet each), and add the new work. ',
-    '  The CURRENT topic gets the most bullets and the most detail (file names, commands, decisions, outcomes); ',
-    '  older topics stay as one or two brief bullets. ',
+    '  Keep every topic that still matters from the old summary (ONE short bullet each — a few words, not a sentence), and add the new work. ',
+    '  The CURRENT topic gets up to 3-4 bullets with a little detail (file names, commands, outcomes); ',
+    '  older topics stay as one brief bullet each. Be terse: every bullet is short.',
     `  Keep the whole outline under ${SUMMARY_MAX_CHARS} characters.`,
     '',
     '  Example shape:',
