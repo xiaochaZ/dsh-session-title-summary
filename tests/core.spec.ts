@@ -94,7 +94,8 @@ describe('summary prompts', () => {
     expect(system).toContain('8 words')
     expect(system).toContain('18 CJK characters')
     expect(system).toContain('major topic - minor topic')
-    expect(system).toContain('CURRENT task')
+    expect(system).toContain('CURRENT work')
+    expect(system).toContain('session-level GOAL')
     expect(system).toContain('slightly longer title')
   })
 
