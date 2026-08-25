@@ -53,8 +53,8 @@ export interface Config {
 
 export const Config: z<Config> = z.object({
   enabled: z.boolean().default(true),
-  targetWords: z.natural().min(1).default(5),
-  targetCjkCharacters: z.natural().min(1).default(10),
+  targetWords: z.natural().min(1).default(8),
+  targetCjkCharacters: z.natural().min(1).default(18),
   provider: z.string(),
   model: z.string(),
   timeoutMs: z.natural().min(1000).default(90000),
@@ -82,8 +82,8 @@ function resolveConfig(source: () => Config): ResolvedConfig {
   const value = source()
   return {
     enabled: value.enabled ?? DEFAULT_ENABLED,
-    targetWords: value.targetWords ?? 5,
-    targetCjkCharacters: value.targetCjkCharacters ?? 10,
+    targetWords: value.targetWords ?? 8,
+    targetCjkCharacters: value.targetCjkCharacters ?? 18,
     provider: value.provider,
     model: value.model,
     timeoutMs: value.timeoutMs ?? 90000,
