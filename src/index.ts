@@ -87,8 +87,9 @@ function resolveConfig(source: () => Config): ResolvedConfig {
 }
 
 /**
- * Mount the summary loop: on every `turn/end` of a live session, fold the new
- * events into the rolling summary and rename the session.
+ * Mount the summary loop: on every `turn/end` of a live session (and a
+ * low-frequency poll over `ctx.sessions.list()` as a scope-independent
+ * fallback), fold the new events into the rolling summary and rename.
  * @param ctx - host plugin context carrying sessions/llm/sessionTitle.
  * @param config - resolved plugin config (schema defaults applied by the loader).
  */
@@ -108,15 +109,32 @@ export function apply(ctx: Context, config?: Config): void {
 
   ctx.on('session/event', (session, event) => {
     if (event.type !== 'turn/end') return
-    ctx.logger.info(`[session-title-summary] turn/end received for ${session.id} (origin=${session.header.origin})`)
     fold(session)
   })
 
-  // Probe: confirm the plugin fiber receives global (non-scoped) events at all.
-  ctx.on('llm/stream', (options, next) => {
-    ctx.logger.info(`[session-title-summary] llm/stream seen sessionId=${options.sessionId ?? 'none'} provider=${options.provider}`)
-    return next()
-  }, { global: true, prepend: true })
+  // Scope-independent fallback: poll every live session's seq. `session/event`
+  // is a Scoped event that a plugin fiber may not receive; `ctx.sessions.list()`
+  // is a plain service call that always works. Only sessions whose seq grew
+  // since the last pass are folded (cheap: the fold itself dedupes via the
+  // durable lastSeq cursor).
+  let pollTimer: ReturnType<typeof setInterval> | undefined
+  try {
+    const store = ctx.sessions
+    if (store !== undefined) {
+      pollTimer = setInterval(() => {
+        try {
+          for (const session of store.list()) fold(session)
+        } catch (error) {
+          ctx.logger.warn(`[session-title-summary] poll failed: ${String(error)}`)
+        }
+      }, 5000)
+      ctx.effect(() => () => {
+        if (pollTimer !== undefined) clearInterval(pollTimer)
+      }, 'dsh-session-title-summary: poll')
+    }
+  } catch {
+    // ctx.sessions unavailable (unlikely); events-only mode.
+  }
 
   ctx.effect(() => () => {
     chains.clear()
