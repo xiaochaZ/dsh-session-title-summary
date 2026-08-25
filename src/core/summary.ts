@@ -23,6 +23,87 @@ export const SUMMARY_MAX_CHARS = 3000
 /** Bound the model's total output budget before parsing. */
 export const RESULT_MAX_CHARS = 8192
 
+/** Display width of one character: CJK/full-width chars count as 2, ASCII
+ * and half-width chars count as 1 (two ASCII chars = one CJK char). */
+function charWidth(ch: string): number {
+  const code = ch.codePointAt(0) ?? 0
+  // CJK unified ideographs, full-width forms, hangul, kana, and other wide ranges.
+  if (
+    (code >= 0x1100 && code <= 0x115F) || // Hangul Jamo
+    (code >= 0x2E80 && code <= 0xA4CF) || // CJK Radicals .. Yi
+    (code >= 0xAC00 && code <= 0xD7A3) || // Hangul Syllables
+    (code >= 0xF900 && code <= 0xFAFF) || // CJK Compatibility Ideographs
+    (code >= 0xFE30 && code <= 0xFE4F) || // CJK Compatibility Forms
+    (code >= 0xFF00 && code <= 0xFF60) || // Full-width Forms
+    (code >= 0xFFE0 && code <= 0xFFE6) || // Full-width Signs
+    (code >= 0x20000 && code <= 0x2FFFD) // CJK Extension B..
+  ) {
+    return 2
+  }
+  return 1
+}
+
+/** Display width of a string (two ASCII chars = one CJK char). */
+export function displayWidth(text: string): number {
+  let width = 0
+  for (const ch of text) width += charWidth(ch)
+  return width
+}
+
+/**
+ * Fit a title into a display-width budget WITHOUT breaking its meaning.
+ * Information integrity is the priority: we never cut a semantic unit in
+ * half. Strategy, in order:
+ *   1. If the whole title fits, keep it.
+ *   2. Otherwise drop the minor topic (the part after the last "-") and keep
+ *      the complete major topic (the goal).
+ *   3. If the major topic still does not fit, drop trailing tokens at
+ *      word/space boundaries (never mid-word, never mid-CJK-word).
+ * @param title - the model-produced title.
+ * @param maxCjkChars - maximum CJK-character count (default 10).
+ * @returns a width-bounded title that stays meaningful.
+ */
+export function truncateTitleByWidth(title: string, maxCjkChars: number = 10): string {
+  const maxWidth = maxCjkChars * 2
+  const trimmed = title.trim()
+  if (trimmed === '') return ''
+
+  // 1. Fits as-is.
+  if (displayWidth(trimmed) <= maxWidth) return trimmed
+
+  // 2. Drop the minor topic, keep the complete major topic.
+  const dash = trimmed.lastIndexOf('-')
+  if (dash > 0) {
+    const major = trimmed.slice(0, dash).trim().replace(/[\s\-–—]+$/, '')
+    if (major !== '' && displayWidth(major) <= maxWidth) return major
+  }
+
+  // 3. Truncate at token boundaries (never mid-token).
+  // Split into CJK runs and non-CJK runs so a CJK phrase or an ASCII word is
+  // never cut in half.
+  const tokens: string[] = []
+  let current = ''
+  for (const ch of trimmed) {
+    const wide = charWidth(ch) === 2
+    if (current !== '' && wide !== (charWidth(current[0]) === 2)) {
+      tokens.push(current)
+      current = ch
+    } else {
+      current += ch
+    }
+  }
+  if (current !== '') tokens.push(current)
+
+  let width = 0
+  const kept: string[] = []
+  for (const token of tokens) {
+    if (width + displayWidth(token) > maxWidth) break
+    kept.push(token)
+    width += displayWidth(token)
+  }
+  return kept.join('').trim()
+}
+
 /**
  * Build the system instruction for the folding call.
  * @param targetWords - target title length in words (non-CJK).
@@ -64,11 +145,13 @@ export function buildSystemPrompt(targetWords: number, targetCjkCharacters: numb
     '',
     '- "title": a concise session title reflecting the CURRENT work — the overall GOAL first, then the specific item being handled right now, ',
     '  in the same "major topic - minor topic" form. ',
-    '  Example: "开发标题自动总结功能 - 修复子代理输出token上限", NOT a run-on sentence. ',
+    '  Example: "开发标题自动总结功能 - 修复token上限", NOT a run-on sentence. ',
     '  Base it on the NEWEST work at the END of the digest, NOT on how the session started. ',
     '  Early topics are background and must NOT dominate the title. ',
-    `  Aim for about ${targetWords} words (non-CJK) or ${targetCjkCharacters} CJK characters, in the language of the session. `,
-    '  HARD LIMIT: never exceed 10 CJK characters (or 6 English words). Keep it short.',
+    '  WIDTH RULE: the title display width must fit 10 CJK characters — every CJK/full-width char counts 1, ',
+    '  every 2 ASCII/half-width chars count 1 (so 20 ASCII chars is the max). ',
+    '  That is a HARD LIMIT of 20 display units. Prefer short words; never write a full package or file name. ',
+    '  Examples within the limit: "开发总结功能 - 修复token上限" (10 CJK + 5 ASCII), "插件修复 - 标题截断".',
     '',
     'Rules:',
     '- Return ONLY the JSON object. No markdown fences, no commentary, no trailing text.',

@@ -22,7 +22,7 @@ import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-session'
 import z from 'schemastery'
 import { digestEvents } from './core/events.ts'
-import { buildSystemPrompt, buildUserPrompt, nextSummary, parseSummaryResult } from './core/summary.ts'
+import { buildSystemPrompt, buildUserPrompt, nextSummary, parseSummaryResult, truncateTitleByWidth } from './core/summary.ts'
 import { readSummary, writeSummary } from './core/store.ts'
 
 /** Stable cordis plugin name. */
@@ -157,9 +157,13 @@ async function foldOnce(ctx: Context, agent: Agent, cfg: ResolvedConfig, turn: n
     return
   }
   writeSummary(session.id, { version: 1, lastSeq, summary: nextSummary(record?.summary, result) })
+  // Hard width cap: the title display width must fit cfg.targetCjkCharacters
+  // CJK chars (2 ASCII = 1 CJK), regardless of what the model produced.
+  const title = truncateTitleByWidth(result.title, cfg.targetCjkCharacters)
+  if (title === '') return
   try {
-    ctx.sessionTitle.rename(session, result.title)
-    ctx.logger.info(`[session-title-summary] renamed ${session.id} (turn ${turn}) -> "${result.title}"`)
+    ctx.sessionTitle.rename(session, title)
+    ctx.logger.info(`[session-title-summary] renamed ${session.id} (turn ${turn}) -> "${title}"`)
   } catch (error) {
     ctx.logger.warn(`[session-title-summary] rename failed for ${session.id}: ${String(error)}`)
   }

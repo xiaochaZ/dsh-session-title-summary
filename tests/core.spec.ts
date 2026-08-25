@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { digestEvent, digestEvents } from '../src/core/events.ts'
-import { buildSystemPrompt, buildUserPrompt, nextSummary, parseSummaryResult } from '../src/core/summary.ts'
+import { buildSystemPrompt, buildUserPrompt, displayWidth, nextSummary, parseSummaryResult, truncateTitleByWidth } from '../src/core/summary.ts'
 import { readSummary, summaryPath, writeSummary } from '../src/core/store.ts'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -91,8 +91,7 @@ describe('digestEvents', () => {
 describe('summary prompts', () => {
   it('builds a system prompt with the requested title lengths', () => {
     const system = buildSystemPrompt(6, 10)
-    expect(system).toContain('6 words')
-    expect(system).toContain('10 CJK characters')
+    expect(system).toContain('WIDTH RULE')
     expect(system).toContain('major topic - minor topic')
     expect(system).toContain('CURRENT work')
     expect(system).toContain('session-level GOAL')
@@ -135,6 +134,35 @@ describe('nextSummary', () => {
   it('bounds the summary length', () => {
     const result = { summary: 'x'.repeat(5000), title: 't' }
     expect(nextSummary('old', result).length).toBe(3000)
+  })
+})
+
+describe('truncateTitleByWidth', () => {
+  it('keeps a title that already fits', () => {
+    expect(truncateTitleByWidth('插件修复 - 标题截断', 10)).toBe('插件修复 - 标题截断')
+  })
+
+  it('drops the minor topic and keeps the complete major topic when over width', () => {
+    // "开发标题自动总结功能 - 修复子代理输出token上限" is far over 10 CJK (20 units).
+    const result = truncateTitleByWidth('开发标题自动总结功能 - 修复子代理输出token上限', 10)
+    // The major topic alone is 10 CJK = 20 units, which fits exactly.
+    expect(result).toBe('开发标题自动总结功能')
+    expect(displayWidth(result)).toBeLessThanOrEqual(20)
+  })
+
+  it('never cuts an ASCII word in half', () => {
+    const result = truncateTitleByWidth('dsh-session-title-summary 插件', 6)
+    // "dsh-session-title-summary" is 24 ASCII = 12 CJK > 6; it must be dropped
+    // whole (token boundary), not sliced mid-word.
+    expect(result).not.toMatch(/dsh-…|dsh-sess/)
+    expect(displayWidth(result)).toBeLessThanOrEqual(12)
+  })
+
+  it('handles a two-ASCII-chars-count-as-one-CJK title', () => {
+    // "插件修复 - token上限": 插件修复(4) + 空格(1) + -(1) + 空格(1) + token(5) + 上限(4) = 16 units.
+    const result = truncateTitleByWidth('插件修复 - token上限', 10)
+    expect(displayWidth(result)).toBeLessThanOrEqual(20)
+    expect(result).toBe('插件修复 - token上限')
   })
 })
 
