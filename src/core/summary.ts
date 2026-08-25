@@ -16,12 +16,13 @@ export interface SummaryResult {
   title: string
 }
 
-/** Bounds for one generated summary (keeps the rolling file compact; the
- * outline covers the whole session but stays terse). */
-export const SUMMARY_MAX_CHARS = 3000
+/** Bounds for one generated summary (keeps the rolling file compact AND well
+ * under the summarizer subagent's token budget — a 1500-char outline plus the
+ * title fits comfortably inside 4096 tokens even for CJK). */
+export const SUMMARY_MAX_CHARS = 1500
 
 /** Bound the model's total output budget before parsing. */
-export const RESULT_MAX_CHARS = 8192
+export const RESULT_MAX_CHARS = 4096
 
 /** Display width of one character: CJK/full-width chars count as 2, ASCII
  * and half-width chars count as 1 (two ASCII chars = one CJK char). */

@@ -125,7 +125,7 @@ describe('parseSummaryResult', () => {
   })
 
   it('rejects oversized output', () => {
-    const huge = `{"summary":"${'x'.repeat(9000)}","title":"t"}`
+    const huge = `{"summary":"${'x'.repeat(5000)}","title":"t"}`
     expect(parseSummaryResult(huge)).toBeUndefined()
   })
 })
@@ -133,7 +133,7 @@ describe('parseSummaryResult', () => {
 describe('nextSummary', () => {
   it('bounds the summary length', () => {
     const result = { summary: 'x'.repeat(5000), title: 't' }
-    expect(nextSummary('old', result).length).toBe(3000)
+    expect(nextSummary('old', result).length).toBe(1500)
   })
 })
 
