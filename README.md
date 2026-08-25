@@ -7,39 +7,47 @@ English | [中文](README.zh.md)
 [![DSH](https://img.shields.io/badge/dsh-%E2%89%A50.1.1--rc.1-purple?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
 
 A host-only plugin for DeepSeek Harness (DSH): after every completed turn it
-folds the session's new work (user messages, assistant replies, tool calls)
-into a **durable rolling summary** and renames the session to a title that
-reflects the **current task**. Implemented entirely through the official NPM
-SDK — no DSH source changes.
+summarizes the session's work in a **rolling "major topic - minor topic"
+outline** and renames the session to a title that names the session GOAL and
+the specific item being handled right now. Implemented entirely through the
+official NPM SDK — no DSH source changes.
 
 ## How it works
 
-- The plugin listens for `turn/end` on every live session.
-- New events since the last fold are digested into text (prompts, replies,
-  tool names + arguments, tool results).
-- The digest is sent together with the previous rolling summary to the same
-  model route the session is using; the model returns a JSON object with an
-  updated summary and a new title.
-- The updated summary is stored atomically per session under
+- The plugin listens for `agent/turn-stopping` (the same event dsh-auto-memory
+  uses) on every live top-level agent.
+- After the turn settles, it spawns a **subagent** with the live agent as the
+  parent, so the child inherits the same model route and workspace and the main
+  conversation is never blocked or polluted.
+- The subagent receives the previous rolling summary plus a digest of the new
+  events (user prompts, assistant replies, tool calls with names/arguments/
+  results) and returns an updated summary and a new title as a structured
+  object.
+- The summary is stored atomically per session under
   `$DSH_HOME/dsh-session-title-summary/<sessionId>.json` and the session is
   renamed via the official `sessionTitle` service.
 
-### The rolling decay you asked for
+### Summary format: "major topic - minor topic"
 
-Each fold compresses the old summary and keeps detail for the newest work —
-so the further back something happened, the less detail the summary keeps,
-while the current task stays concrete. A long session like "extract archives,
-then classify and organize photos" keeps every stage in the summary, with the
-organizing step described in the most detail, and the title tracks the
-currently active step.
+The summary covers the WHOLE session as a terse outline. A **major topic** is
+the session-level GOAL the user is working toward (e.g. "开发标题自动总结功能");
+a **minor topic** is one specific item under it (e.g. "修复子代理输出token上限").
+Each line reads "major topic - minor topic", lines of the same major topic stay
+together, and different major topics are separated by a blank line. The current
+major topic gets the most bullets; older topics keep one short bullet each.
+
+### Title follows the current work
+
+The title uses the same form, e.g. "开发标题自动总结功能 - 修复子代理输出token上限".
+It is based on the newest work at the end of the digest, never on how the
+session started, so it tracks the current task as the session evolves.
 
 ### Cache safety
 
-The `session/title` event is log-only: it never enters `deriveMessages()`,
-the system prompt, tool schemas, or the request prefix, so renaming does not
-touch the input cache hit rate or the KV cache. The fold itself is a separate
-auxiliary model request (`purpose: "session-title"`) with its own prompt —
-it does not share a prefix with the main conversation.
+The `session/title` event is log-only: it never enters `deriveMessages()`, the
+system prompt, tool schemas, or the request prefix, so renaming does not touch
+the input cache hit rate or the KV cache. Summarization runs in a detached
+subagent with its own prompt — it shares no prefix with the main conversation.
 
 ## Install
 
@@ -64,11 +72,10 @@ The Web settings surface renders a section for this plugin:
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `true` | Master switch. Turn it off to keep session titles untouched (the plugin then does nothing). |
-| `targetWords` | `5` | Target title length in words for non-CJK sessions. |
-| `targetCjkCharacters` | `10` | Target title length in CJK characters. |
+| `targetWords` | `8` | Target title length in words for non-CJK sessions. |
+| `targetCjkCharacters` | `18` | Target title length in CJK characters. |
 | `provider` / `model` | session route | Optional explicit LLM route override; default follows the session's current model. |
-| `maxOutputTokens` | `256` | Per-fold model output budget. |
-| `timeoutMs` | `60000` | Per-fold call timeout. |
+| `timeoutMs` | `90000` | Per-fold subagent timeout. |
 
 ## Data
 
@@ -85,8 +92,9 @@ pnpm build
 
 ## Known limitations
 
-- A fold that produces no usable model output advances the cursor without
-  renaming, so the same events are not re-fed forever.
+- The summarizer subagent has a fixed 4096-token output budget; a very long
+  summary can still be cut off (the fold then advances the cursor without
+  renaming, so the same events are not re-fed forever).
 - Explicitly user-renamed sessions are re-titled by the plugin on the next
   turn while enabled (turn the switch off to stop that).
 - Subagent child sessions are skipped; only their parent's title is managed.

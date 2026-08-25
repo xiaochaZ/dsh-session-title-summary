@@ -1,6 +1,6 @@
 {
   "name": "@xiaochaz/dsh-session-title-summary",
-  "description": "DSH web GUI plugin: after every turn, rolls the session's work (messages + tool calls) into a durable summary and renames the session to reflect the current task. Host-only — no dsh source changes.",
+  "description": "DSH host-only plugin: after every turn, a subagent folds the session's work (messages + tool calls) into a rolling 'major topic - minor topic' outline and renames the session to its current goal + task. No dsh source changes.",
   "version": "0.1.0",
   "private": true,
   "type": "module",
