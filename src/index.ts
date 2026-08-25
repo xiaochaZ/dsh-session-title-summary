@@ -1,23 +1,24 @@
 /**
  * dsh-session-title-summary — host half.
  *
- * After every completed turn, folds the session's new events (user prompts,
- * assistant replies, tool calls) into a durable rolling summary and renames
- * the session to a title reflecting the CURRENT task. The rolling summary
- * decays naturally: older work is compressed by each fold, newest work keeps
- * detail — "the further back, the less detail".
+ * After every completed turn (`agent/turn-stopping`), spawns a subagent that
+ * folds the session's new events (user prompts, assistant replies, tool calls)
+ * into a durable rolling summary and returns a session title reflecting the
+ * CURRENT task. The rolling summary decays naturally: older work is compressed
+ * by each fold, newest work keeps detail — "the further back, the less detail".
  *
- * Everything rides official NPM SDK packages; no dsh source changes. The
- * browser half is deliberately absent: the enabled switch lives in the host-
- * registered settings section, which the Web settings surface renders.
+ * Trigger design follows dsh-auto-memory: `agent/turn-stopping` is the event
+ * a host plugin reliably receives (session/event is session-scoped and a
+ * plugin fiber may not observe it), and the work runs in a subagent so the
+ * main conversation is never blocked or polluted. Everything rides official
+ * NPM SDK packages; no dsh source changes.
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
-import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { Session } from '@deepseek-ai/dsh-session'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-session-title'
-import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session'
 import z from 'schemastery'
 import { digestEvents } from './core/events.ts'
@@ -42,9 +43,7 @@ export interface Config {
   provider?: string
   /** Explicit LLM route override; defaults to the session's current route. */
   model?: string
-  /** Per-fold model output budget. */
-  maxOutputTokens?: number
-  /** Per-fold call timeout. */
+  /** Per-fold subagent timeout. */
   timeoutMs?: number
 }
 
@@ -54,12 +53,15 @@ export const Config: z<Config> = z.object({
   targetCjkCharacters: z.natural().min(1).default(10),
   provider: z.string(),
   model: z.string(),
-  maxOutputTokens: z.natural().min(1).default(256),
-  timeoutMs: z.natural().min(1000).default(60000),
+  timeoutMs: z.natural().min(1000).default(90000),
 })
 
 /** Default for the master switch (composition entry may omit it). */
 const DEFAULT_ENABLED = true
+
+/** How long to wait after turn-stopping before spawning the subagent (avoid
+ * racing the session teardown; same pattern as dsh-auto-memory). */
+const SETTLE_DELAY_MS = 600
 
 /** Resolved, defaulted config the fold loop reads. */
 interface ResolvedConfig {
@@ -68,7 +70,6 @@ interface ResolvedConfig {
   targetCjkCharacters: number
   provider?: string
   model?: string
-  maxOutputTokens: number
   timeoutMs: number
 }
 
@@ -81,16 +82,14 @@ function resolveConfig(source: () => Config): ResolvedConfig {
     targetCjkCharacters: value.targetCjkCharacters ?? 10,
     provider: value.provider,
     model: value.model,
-    maxOutputTokens: value.maxOutputTokens ?? 256,
-    timeoutMs: value.timeoutMs ?? 60000,
+    timeoutMs: value.timeoutMs ?? 90000,
   }
 }
 
 /**
- * Mount the summary loop: on every `turn/end` of a live session (and a
- * low-frequency poll over `ctx.sessions.list()` as a scope-independent
- * fallback), fold the new events into the rolling summary and rename.
- * @param ctx - host plugin context carrying sessions/llm/sessionTitle.
+ * Mount the summary loop: on every `agent/turn-stopping`, spawn a subagent to
+ * fold the session's new work and rename the session.
+ * @param ctx - host plugin context carrying sessions/subagents/sessionTitle.
  * @param config - resolved plugin config (schema defaults applied by the loader).
  */
 export function apply(ctx: Context, config?: Config): void {
@@ -100,41 +99,19 @@ export function apply(ctx: Context, config?: Config): void {
 
   // Serialize per-session folds: a fast second turn must not race the first.
   const chains = new Map<string, Promise<void>>()
-  const fold = (session: Session): void => {
-    const previous = chains.get(session.id) ?? Promise.resolve()
-    const cfg = resolveConfig(current)
-    const run = previous.then(() => foldOnce(ctx, session, cfg)).catch(() => {})
-    chains.set(session.id, run)
-  }
 
-  ctx.on('session/event', (session, event) => {
-    if (event.type !== 'turn/end') return
-    fold(session)
+  ctx.on('agent/turn-stopping', (payload) => {
+    const agent = payload?.agent
+    const turn = payload?.turn
+    if (!agent?.session) return
+    // Delay past the turn teardown, then fold in the background.
+    setTimeout(() => {
+      const cfg = resolveConfig(current)
+      const previous = chains.get(agent.session.id) ?? Promise.resolve()
+      const run = previous.then(() => foldOnce(ctx, agent, cfg, turn)).catch(() => {})
+      chains.set(agent.session.id, run)
+    }, SETTLE_DELAY_MS)
   })
-
-  // Scope-independent fallback: poll every live session's seq. `session/event`
-  // is a Scoped event that a plugin fiber may not receive; `ctx.sessions.list()`
-  // is a plain service call that always works. Only sessions whose seq grew
-  // since the last pass are folded (cheap: the fold itself dedupes via the
-  // durable lastSeq cursor).
-  let pollTimer: ReturnType<typeof setInterval> | undefined
-  try {
-    const store = ctx.sessions
-    if (store !== undefined) {
-      pollTimer = setInterval(() => {
-        try {
-          for (const session of store.list()) fold(session)
-        } catch (error) {
-          ctx.logger.warn(`[session-title-summary] poll failed: ${String(error)}`)
-        }
-      }, 5000)
-      ctx.effect(() => () => {
-        if (pollTimer !== undefined) clearInterval(pollTimer)
-      }, 'dsh-session-title-summary: poll')
-    }
-  } catch {
-    // ctx.sessions unavailable (unlikely); events-only mode.
-  }
 
   ctx.effect(() => () => {
     chains.clear()
@@ -148,79 +125,83 @@ export function apply(ctx: Context, config?: Config): void {
   })
 }
 
-/** One rolling fold: digest new events, call the model, persist, rename. */
-async function foldOnce(ctx: Context, session: Session, cfg: ResolvedConfig): Promise<void> {
+/** One rolling fold: digest new events, call the summarizer subagent, persist, rename. */
+async function foldOnce(ctx: Context, agent: Agent, cfg: ResolvedConfig, turn: number): Promise<void> {
+  const session = agent.session
   if (!cfg.enabled) return
   // Subagent children keep their own titles; leave them to their parent.
-  if (session.header.origin === 'subagent') return
-  // The session's current model route — the fold must use the same provider.
-  const header = session.requestHeader()
-  const provider = cfg.provider ?? header?.config.provider
-  const model = cfg.model ?? header?.config.model
-  if (provider === undefined || model === undefined) return
+  if (session.header.origin === 'subagent' || session.header.parentSession !== undefined) return
 
   const record = readSummary(session.id)
   const sinceSeq = record?.lastSeq ?? 0
   const fresh = session.events.filter((event) => event.seq > sinceSeq)
-  ctx.logger.info(`[session-title-summary] fold: ${session.id} enabled=${cfg.enabled} origin=${session.header.origin} route=${provider}/${model} since=${sinceSeq} fresh=${fresh.length}`)
   if (fresh.length === 0) return
   const digest = digestEvents(fresh)
   const lastSeq = fresh[fresh.length - 1].seq
+  if (digest.trim() === '') return
 
-  const result = await callFold(ctx, session, provider, model, cfg, record?.summary, digest)
+  const result = await callSummarizer(ctx, agent, cfg, record?.summary, digest)
   if (result === undefined) {
-    // The model produced nothing usable; still advance the cursor so the same
-    // events are not re-fed forever.
+    // The subagent produced nothing usable; still advance the cursor so the
+    // same events are not re-fed forever.
     if (record !== undefined && lastSeq > record.lastSeq) {
       writeSummary(session.id, { version: 1, lastSeq, summary: record.summary })
     }
     return
   }
   writeSummary(session.id, { version: 1, lastSeq, summary: nextSummary(record?.summary, result) })
-  ctx.sessionTitle.rename(session, result.title)
+  try {
+    ctx.sessionTitle.rename(session, result.title)
+    ctx.logger.info(`[session-title-summary] renamed ${session.id} (turn ${turn}) -> "${result.title}"`)
+  } catch (error) {
+    ctx.logger.warn(`[session-title-summary] rename failed for ${session.id}: ${String(error)}`)
+  }
 }
 
-/** Resolve the fold result through one auxiliary model call. */
-async function callFold(
+/** Resolve the fold result through one subagent call (parent = the live agent,
+ * so the child inherits the same model route and workspace). */
+async function callSummarizer(
   ctx: Context,
-  session: Session,
-  provider: string,
-  model: string,
-  cfg: { targetWords: number; targetCjkCharacters: number; maxOutputTokens: number; timeoutMs: number },
+  agent: Agent,
+  cfg: ResolvedConfig,
   oldSummary: string | undefined,
   digest: string,
 ): Promise<{ summary: string; title: string } | undefined> {
-  if (digest.trim() === '') return undefined
+  const subagents = ctx.subagents
+  if (subagents === undefined) return undefined
+
   const userPrompt = buildUserPrompt(oldSummary, digest)
   const system = buildSystemPrompt(cfg.targetWords, cfg.targetCjkCharacters)
-  const assembler = new BlockAssembler()
-  const signal = AbortSignal.timeout(cfg.timeoutMs)
+
+  // Route override: ask the subagent to prefer a specific provider/model when
+  // configured; otherwise it inherits the parent's route automatically.
+  const routeNote = cfg.provider !== undefined && cfg.model !== undefined
+    ? `\nUse provider "${cfg.provider}" and model "${cfg.model}" for this task.`
+    : ''
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort('session-title-summary timeout'), cfg.timeoutMs)
   try {
-    const messages = [createUserMessage({
-      content: [{ type: 'text', text: userPrompt }],
-      source: { kind: 'plugin', plugin: 'dsh-session-title-summary' },
-    })]
-    for await (const chunk of ctx.llm.stream({
-      provider,
-      model,
-      messages,
-      system,
-      maxTokens: cfg.maxOutputTokens,
-      sessionId: session.id,
-      purpose: 'session-title',
-      signal,
-    })) {
-      assembler.push(chunk)
-    }
+    const run = await subagents.start('spawn', {
+      label: 'session-title-summary',
+      prompt: [
+        { type: 'text', text: `${system}${routeNote}\n\n${userPrompt}` },
+      ],
+      signal: controller.signal,
+      parent: agent,
+    })
+    const result = await run.result
+    const blocks = result?.output ?? []
+    const raw = blocks.filter((b) => b?.type === 'text').map((b) => b.text).join('').trim()
+    return parseSummaryResult(raw)
   } catch (error) {
-    if (signal.aborted) {
-      ctx.logger.warn(`session "${session.id}": summary fold timed out after ${cfg.timeoutMs}ms`)
+    if (controller.signal.aborted) {
+      ctx.logger.warn(`[session-title-summary] subagent timed out after ${cfg.timeoutMs}ms`)
     } else {
-      ctx.logger.warn(`session "${session.id}": summary fold failed: ${String(error)}`)
+      ctx.logger.warn(`[session-title-summary] subagent failed: ${String(error)}`)
     }
     return undefined
+  } finally {
+    clearTimeout(timer)
   }
-  const blocks = assembler.blocks()
-  const raw = blocks.filter((block) => block.type === 'text').map((block) => block.text).join('')
-  return parseSummaryResult(raw)
 }

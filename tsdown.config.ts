@@ -20,9 +20,11 @@ export default defineConfig({
   clean: false,
   external: [
     '@deepseek-ai/cordis',
+    '@deepseek-ai/dsh-agent',
     '@deepseek-ai/dsh-llm',
     '@deepseek-ai/dsh-session',
     '@deepseek-ai/dsh-session-title',
     '@deepseek-ai/dsh-settings',
+    '@deepseek-ai/dsh-subagent',
   ],
 })
