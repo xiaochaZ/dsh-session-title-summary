@@ -3,6 +3,11 @@
  * with a new event digest into an updated summary plus a title, and the
  * strict JSON result parser. Pure functions — the LLM call itself lives in
  * the host half.
+ *
+ * Summary format: a nested outline of "major topic - minor topic" lines that
+ * covers the WHOLE session (everything stays present; older topics keep one
+ * short bullet, the current topic keeps concrete detail). Title: focuses on
+ * the CURRENT task only.
  */
 
 /** JSON result the model must return: updated summary + a concise title. */
@@ -11,16 +16,15 @@ export interface SummaryResult {
   title: string
 }
 
-/** Bounds for one generated summary (keeps the rolling file small). */
-export const SUMMARY_MAX_CHARS = 2000
+/** Bounds for one generated summary (keeps the rolling file small but lets
+ * the full session outline fit). */
+export const SUMMARY_MAX_CHARS = 6000
 
 /** Bound the model's total output budget before parsing. */
-export const RESULT_MAX_CHARS = 4096
+export const RESULT_MAX_CHARS = 8192
 
 /**
- * Build the system instruction for the folding call. The instruction asks
- * the model to compress the old summary and retain detail for the newest
- * work — the "the further back, the less detail" decay the user asked for.
+ * Build the system instruction for the folding call.
  * @param targetWords - target title length in words (non-CJK).
  * @param targetCjkCharacters - target title length in CJK characters.
  * @returns the system prompt text.
@@ -28,19 +32,28 @@ export const RESULT_MAX_CHARS = 4096
 export function buildSystemPrompt(targetWords: number, targetCjkCharacters: number): string {
   return [
     'You are a session-summary assistant for an AI coding tool.',
-    'You maintain a rolling summary of everything the user and the assistant did in this session.',
+    'You maintain a rolling outline of EVERYTHING the user and the assistant did in this session.',
     '',
     'You receive:',
-    '- "Old summary": a compressed account of everything that happened BEFORE the new work.',
+    '- "Old summary": the previous outline of everything that happened BEFORE the new work.',
     '- "New work": a fresh digest of the most recent user messages, assistant replies, and tool calls, newest at the END.',
     '',
     'Produce a single JSON object with exactly two keys:',
-    '- "summary": the UPDATED rolling summary. Fold the old summary and the new work together. ',
-    '  The further back an item is, the less detail it keeps — older steps become one short clause or are dropped, ',
-    '  the most recent work keeps concrete detail (file names, commands, decisions, outcomes). ',
-    '  The summary must read as one continuous story of the session, showing the flow of what changed over time ',
-    '  (e.g. "extracted archives, then classified photos, then organized them by person"). ',
-    `  Keep the whole summary under ${SUMMARY_MAX_CHARS} characters.`,
+    '- "summary": the UPDATED outline, covering the WHOLE session — nothing important is dropped. ',
+    '  Format it as nested lines of "major topic - minor topic": one "major topic -" line, ',
+    '  followed by "  - minor topic" lines indented under it. Group related work under one major topic. ',
+    '  Keep every topic that still matters from the old summary (compressed to one short bullet each), ',
+    '  and add the new work. The CURRENT topic gets the most detail (file names, commands, decisions, outcomes); ',
+    '  older topics stay as brief bullets. ',
+    `  Keep the whole outline under ${SUMMARY_MAX_CHARS} characters.`,
+    '',
+    '  Example shape:',
+    '  "插件开发 - 会话标题总结插件"',
+    '    "  - 修复:摘要保留最新工作,标题跟随当前任务"',
+    '    "  - 当前:调整摘要为大问题-小问题格式"',
+    '  "历史任务 - 照片归档"',
+    '    "  - 完成:解压-分类-整理"',
+    '',
     '- "title": a concise session title reflecting the CURRENT task the session is working on right now — ',
     '  base it on the NEWEST work at the END of the digest, NOT on how the session started. ',
     '  Early topics are background and must NOT dominate the title. ',
@@ -48,7 +61,7 @@ export function buildSystemPrompt(targetWords: number, targetCjkCharacters: numb
     '',
     'Rules:',
     '- Return ONLY the JSON object. No markdown fences, no commentary, no trailing text.',
-    '- The summary must be self-contained prose (it replaces the old summary).',
+    '- The summary must be self-contained (it replaces the old summary).',
     '- Never invent facts that are not in the old summary or the new work.',
     '- If the session has no title yet, the title names the current task; if it has one, update it to the newest focus.',
   ].join('\n')

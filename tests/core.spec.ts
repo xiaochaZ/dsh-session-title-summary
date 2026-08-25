@@ -77,13 +77,13 @@ describe('digestEvents', () => {
   })
 
   it('keeps the newest lines when the digest exceeds the bound', () => {
-    // 200 events x ~50 chars each exceed DIGEST_MAX_CHARS (8000);
+    // 600 events x ~50 chars each exceed DIGEST_MAX_CHARS (24000);
     // the OLDEST lines must be dropped, the newest kept.
-    const many = Array.from({ length: 200 }, (_, i) => event('user/message', { content: [{ type: 'text', text: `m${i}`.repeat(50) }] }, i))
+    const many = Array.from({ length: 600 }, (_, i) => event('user/message', { content: [{ type: 'text', text: `m${i}`.repeat(50) }] }, i))
     const digest = digestEvents(many)
-    expect(digest.length).toBeLessThanOrEqual(8000)
-    // Newest content (m199) survives; the oldest (m0) was dropped.
-    expect(digest).toContain('m199'.repeat(50).slice(0, 20))
+    expect(digest.length).toBeLessThanOrEqual(24000)
+    // Newest content (m599) survives; the oldest (m0) was dropped.
+    expect(digest).toContain('m599'.repeat(50).slice(0, 20))
     expect(digest).not.toContain('m0'.repeat(50).slice(0, 20))
   })
 })
@@ -93,7 +93,8 @@ describe('summary prompts', () => {
     const system = buildSystemPrompt(5, 10)
     expect(system).toContain('5 words')
     expect(system).toContain('10 CJK characters')
-    expect(system).toContain('further back')
+    expect(system).toContain('major topic - minor topic')
+    expect(system).toContain('CURRENT task')
   })
 
   it('frames the first fold and a subsequent fold distinctly', () => {
@@ -123,7 +124,7 @@ describe('parseSummaryResult', () => {
   })
 
   it('rejects oversized output', () => {
-    const huge = `{"summary":"${'x'.repeat(4096)}","title":"t"}`
+    const huge = `{"summary":"${'x'.repeat(9000)}","title":"t"}`
     expect(parseSummaryResult(huge)).toBeUndefined()
   })
 })
@@ -131,7 +132,7 @@ describe('parseSummaryResult', () => {
 describe('nextSummary', () => {
   it('bounds the summary length', () => {
     const result = { summary: 'x'.repeat(5000), title: 't' }
-    expect(nextSummary('old', result).length).toBe(2000)
+    expect(nextSummary('old', result).length).toBe(5000)
   })
 })
 

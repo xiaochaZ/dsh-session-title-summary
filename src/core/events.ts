@@ -9,8 +9,10 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 /** Bound one digest line so a long tool result cannot blow the LLM input budget. */
 export const LINE_MAX_CHARS = 240
 
-/** Bound the total digest produced from one batch of events. */
-export const DIGEST_MAX_CHARS = 8000
+/** Bound the total digest produced from one batch of events. Generous enough
+ * to carry the whole session's story into the summarizer (the summarizer
+ * compresses; the digest must not truncate the narrative first). */
+export const DIGEST_MAX_CHARS = 24000
 
 /** Shorten a line with an ellipsis when it exceeds the bound. */
 export function clip(text: string, max: number = LINE_MAX_CHARS): string {
