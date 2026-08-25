@@ -20,10 +20,13 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-session'
+import { appendFileSync } from 'node:fs'
+import { join } from 'node:path'
 import z from 'schemastery'
 import { digestEvents } from './core/events.ts'
 import { buildSystemPrompt, buildUserPrompt, nextSummary, parseSummaryResult } from './core/summary.ts'
 import { readSummary, writeSummary } from './core/store.ts'
+import { dshHome } from './core/home.ts'
 
 /** Stable cordis plugin name. */
 export const name = 'session-title-summary'
@@ -31,6 +34,15 @@ export const name = 'session-title-summary'
 /** Services the host half needs (mirrors dsh-auto-memory's inject pattern so
  * the plugin fiber attaches where agent events are observable). */
 export const inject = ['sessions', 'sessionTitle', 'subagents']
+
+/** Diagnostic marker (temporary): capture subagent raw output to see why the
+ * fold returns undefined. Removed once verified. */
+const DEBUG_MARK = join(dshHome(), 'dsh-session-title-summary-debug.log')
+function debugNote(text: string): void {
+  try {
+    appendFileSync(DEBUG_MARK, `${new Date().toISOString()} ${text}\n`, 'utf8')
+  } catch { /* diagnostics must never break the plugin */ }
+}
 
 /** Settings namespace of the capability — spelled here and in the GUI surface. */
 export const SUMMARY_SETTINGS_NAMESPACE = settingsNamespace('dsh-session-title-summary')
@@ -148,6 +160,7 @@ async function foldOnce(ctx: Context, agent: Agent, cfg: ResolvedConfig, turn: n
   if (digest.trim() === '') return
 
   const result = await callSummarizer(ctx, agent, cfg, record?.summary, digest)
+  debugNote(`foldOnce result: ${result === undefined ? 'UNDEFINED' : `ok title="${result.title}" summaryLen=${result.summary.length}`}`)
   if (result === undefined) {
     // The subagent produced nothing usable; still advance the cursor so the
     // same events are not re-fed forever.
@@ -200,7 +213,10 @@ async function callSummarizer(
     const result = await run.result
     const blocks = result?.output ?? []
     const raw = blocks.filter((b) => b?.type === 'text').map((b) => b.text).join('').trim()
-    return parseSummaryResult(raw)
+    debugNote(`subagent raw output (${raw.length} chars): ${raw.slice(0, 600)}`)
+    const parsed = parseSummaryResult(raw)
+    debugNote(`parse result: ${parsed === undefined ? 'UNDEFINED' : `ok title="${parsed.title}"`}`)
+    return parsed
   } catch (error) {
     if (controller.signal.aborted) {
       ctx.logger.warn(`[session-title-summary] subagent timed out after ${cfg.timeoutMs}ms`)
