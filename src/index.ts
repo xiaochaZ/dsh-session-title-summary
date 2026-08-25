@@ -209,8 +209,33 @@ async function callSummarizer(
       ],
       signal: controller.signal,
       parent: agent,
+      // Structured output: the child returns an object instead of hand-writing
+      // JSON text, so truncation can no longer produce an unparseable blob.
+      // The summary may still be long, so give the child a generous budget.
+      agentOptions: { maxTokens: 2048 },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          summary: { type: 'string' },
+          title: { type: 'string' },
+        },
+        required: ['summary', 'title'],
+        additionalProperties: false,
+      },
     })
     const result = await run.result
+    // Structured output lands in `result.structured` when the provider honors
+    // outputSchema; fall back to parsing text blocks for providers that don't.
+    const structured = (result as { structured?: unknown }).structured
+    if (structured !== null && typeof structured === 'object') {
+      const record = structured as Record<string, unknown>
+      const summary = typeof record.summary === 'string' ? record.summary.trim() : ''
+      const title = typeof record.title === 'string' ? record.title.trim() : ''
+      if (summary !== '' && title !== '') {
+        debugNote(`structured result ok: title="${title}" summaryLen=${summary.length}`)
+        return { summary, title }
+      }
+    }
     const blocks = result?.output ?? []
     const raw = blocks.filter((b) => b?.type === 'text').map((b) => b.text).join('').trim()
     debugNote(`subagent raw output (${raw.length} chars): ${raw.slice(0, 600)}`)
