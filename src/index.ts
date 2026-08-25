@@ -20,13 +20,29 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-session'
+import { appendFileSync } from 'node:fs'
+import { join } from 'node:path'
 import z from 'schemastery'
 import { digestEvents } from './core/events.ts'
 import { buildSystemPrompt, buildUserPrompt, nextSummary, parseSummaryResult } from './core/summary.ts'
 import { readSummary, writeSummary } from './core/store.ts'
+import { dshHome } from './core/home.ts'
 
 /** Stable cordis plugin name. */
 export const name = 'session-title-summary'
+
+/** Diagnostic marker file (removed once verified): proves the plugin fiber
+ * observes agent/turn-stopping regardless of logger routing. */
+const DEBUG_MARK = join(dshHome(), 'dsh-session-title-summary-debug.log')
+function debugNote(text: string): void {
+  try {
+    appendFileSync(DEBUG_MARK, `${new Date().toISOString()} ${text}\n`, 'utf8')
+  } catch { /* diagnostics must never break the plugin */ }
+}
+
+/** Services the host half needs (mirrors dsh-auto-memory's inject pattern so
+ * the plugin fiber attaches where agent events are observable). */
+export const inject = ['sessions', 'sessionTitle', 'subagents']
 
 /** Settings namespace of the capability — spelled here and in the GUI surface. */
 export const SUMMARY_SETTINGS_NAMESPACE = settingsNamespace('dsh-session-title-summary')
@@ -93,6 +109,7 @@ function resolveConfig(source: () => Config): ResolvedConfig {
  * @param config - resolved plugin config (schema defaults applied by the loader).
  */
 export function apply(ctx: Context, config?: Config): void {
+  debugNote('apply called')
   // The live source the loop reads: the settings section once the Web
   // settings surface is served, the composition entry otherwise.
   let current: () => Config = () => config ?? {}
@@ -103,12 +120,17 @@ export function apply(ctx: Context, config?: Config): void {
   ctx.on('agent/turn-stopping', (payload) => {
     const agent = payload?.agent
     const turn = payload?.turn
+    debugNote(`turn-stopping fired: session=${agent?.session?.id ?? 'none'} turn=${turn}`)
     if (!agent?.session) return
+    ctx.logger.info(`[session-title-summary] turn-stopping: session=${agent.session.id} turn=${turn}`)
     // Delay past the turn teardown, then fold in the background.
     setTimeout(() => {
       const cfg = resolveConfig(current)
       const previous = chains.get(agent.session.id) ?? Promise.resolve()
-      const run = previous.then(() => foldOnce(ctx, agent, cfg, turn)).catch(() => {})
+      const run = previous.then(() => foldOnce(ctx, agent, cfg, turn)).catch((e) => {
+        ctx.logger.warn(`[session-title-summary] fold error: ${String(e)}`)
+        debugNote(`fold error: ${String(e)}`)
+      })
       chains.set(agent.session.id, run)
     }, SETTLE_DELAY_MS)
   })
@@ -131,6 +153,7 @@ async function foldOnce(ctx: Context, agent: Agent, cfg: ResolvedConfig, turn: n
   if (!cfg.enabled) return
   // Subagent children keep their own titles; leave them to their parent.
   if (session.header.origin === 'subagent' || session.header.parentSession !== undefined) return
+  debugNote(`foldOnce start: ${session.id} turn=${turn} subagents=${ctx.subagents !== undefined}`)
 
   const record = readSummary(session.id)
   const sinceSeq = record?.lastSeq ?? 0
@@ -142,6 +165,7 @@ async function foldOnce(ctx: Context, agent: Agent, cfg: ResolvedConfig, turn: n
 
   const result = await callSummarizer(ctx, agent, cfg, record?.summary, digest)
   if (result === undefined) {
+    debugNote(`foldOnce: summarizer returned undefined for ${session.id} turn=${turn}`)
     // The subagent produced nothing usable; still advance the cursor so the
     // same events are not re-fed forever.
     if (record !== undefined && lastSeq > record.lastSeq) {
@@ -152,9 +176,11 @@ async function foldOnce(ctx: Context, agent: Agent, cfg: ResolvedConfig, turn: n
   writeSummary(session.id, { version: 1, lastSeq, summary: nextSummary(record?.summary, result) })
   try {
     ctx.sessionTitle.rename(session, result.title)
+    debugNote(`renamed ${session.id} turn=${turn} title="${result.title}"`)
     ctx.logger.info(`[session-title-summary] renamed ${session.id} (turn ${turn}) -> "${result.title}"`)
   } catch (error) {
     ctx.logger.warn(`[session-title-summary] rename failed for ${session.id}: ${String(error)}`)
+    debugNote(`rename failed: ${String(error)}`)
   }
 }
 
@@ -168,7 +194,10 @@ async function callSummarizer(
   digest: string,
 ): Promise<{ summary: string; title: string } | undefined> {
   const subagents = ctx.subagents
-  if (subagents === undefined) return undefined
+  if (subagents === undefined) {
+    debugNote('callSummarizer: ctx.subagents is undefined')
+    return undefined
+  }
 
   const userPrompt = buildUserPrompt(oldSummary, digest)
   const system = buildSystemPrompt(cfg.targetWords, cfg.targetCjkCharacters)
@@ -182,6 +211,7 @@ async function callSummarizer(
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort('session-title-summary timeout'), cfg.timeoutMs)
   try {
+    debugNote(`subagents.start begin: label=session-title-summary providers=${(subagents.list ? subagents.list().join(',') : 'n/a')}`)
     const run = await subagents.start('spawn', {
       label: 'session-title-summary',
       prompt: [
@@ -193,6 +223,7 @@ async function callSummarizer(
     const result = await run.result
     const blocks = result?.output ?? []
     const raw = blocks.filter((b) => b?.type === 'text').map((b) => b.text).join('').trim()
+    debugNote(`subagents done: raw=${raw.slice(0, 80)}`)
     return parseSummaryResult(raw)
   } catch (error) {
     if (controller.signal.aborted) {
@@ -200,6 +231,7 @@ async function callSummarizer(
     } else {
       ctx.logger.warn(`[session-title-summary] subagent failed: ${String(error)}`)
     }
+    debugNote(`subagents failed: ${String(error)}`)
     return undefined
   } finally {
     clearTimeout(timer)
