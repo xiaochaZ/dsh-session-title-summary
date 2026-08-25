@@ -74,21 +74,29 @@ export function digestEvent(event: SessionEvent): string | undefined {
 
 /**
  * Digest a contiguous batch of events (in seq order) into one bounded text
- * block. Skips events that render nothing; stops collecting once the total
- * exceeds {@link DIGEST_MAX_CHARS} (keeping the newest lines).
+ * block. Skips events that render nothing. The digest keeps the NEWEST lines:
+ * events are scanned from the tail and older lines are dropped first when the
+ * total exceeds {@link DIGEST_MAX_CHARS} — the session's current work always
+ * stays, early history decays away (the "further back, less detail" rule).
  * @param events - events in ascending seq order.
  * @returns the bounded digest text.
  */
 export function digestEvents(events: readonly SessionEvent[]): string {
+  // Collect all digestible lines first, then keep the tail that fits.
   const lines: string[] = []
-  let used = 0
   for (const event of events) {
     const line = digestEvent(event)
     if (line === undefined) continue
-    const cost = line.length + 1
-    if (used + cost > DIGEST_MAX_CHARS && lines.length > 0) break
     lines.push(line)
-    used += cost
   }
-  return lines.join('\n')
+  // Trim from the front (oldest) until the whole digest fits.
+  let used = 0
+  let start = lines.length
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const cost = lines[i].length + 1
+    if (used + cost > DIGEST_MAX_CHARS && start < lines.length) break
+    used += cost
+    start = i
+  }
+  return lines.slice(start).join('\n')
 }

@@ -76,10 +76,15 @@ describe('digestEvents', () => {
     expect(digest).toBe('用户: a\n工具调用: x({})\n助手: b')
   })
 
-  it('bounds the total digest size', () => {
+  it('keeps the newest lines when the digest exceeds the bound', () => {
+    // 200 events x ~50 chars each exceed DIGEST_MAX_CHARS (8000);
+    // the OLDEST lines must be dropped, the newest kept.
     const many = Array.from({ length: 200 }, (_, i) => event('user/message', { content: [{ type: 'text', text: `m${i}`.repeat(50) }] }, i))
     const digest = digestEvents(many)
     expect(digest.length).toBeLessThanOrEqual(8000)
+    // Newest content (m199) survives; the oldest (m0) was dropped.
+    expect(digest).toContain('m199'.repeat(50).slice(0, 20))
+    expect(digest).not.toContain('m0'.repeat(50).slice(0, 20))
   })
 })
 
