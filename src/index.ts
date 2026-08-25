@@ -112,6 +112,12 @@ export function apply(ctx: Context, config?: Config): void {
     fold(session)
   })
 
+  // Probe: confirm the plugin fiber receives global (non-scoped) events at all.
+  ctx.on('llm/stream', (options, next) => {
+    ctx.logger.info(`[session-title-summary] llm/stream seen sessionId=${options.sessionId ?? 'none'} provider=${options.provider}`)
+    return next()
+  }, { global: true, prepend: true })
+
   ctx.effect(() => () => {
     chains.clear()
   }, 'dsh-session-title-summary: chains')
