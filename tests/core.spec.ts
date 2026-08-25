@@ -90,13 +90,13 @@ describe('digestEvents', () => {
 
 describe('summary prompts', () => {
   it('builds a system prompt with the requested title lengths', () => {
-    const system = buildSystemPrompt(8, 18)
-    expect(system).toContain('8 words')
-    expect(system).toContain('18 CJK characters')
+    const system = buildSystemPrompt(6, 10)
+    expect(system).toContain('6 words')
+    expect(system).toContain('10 CJK characters')
     expect(system).toContain('major topic - minor topic')
     expect(system).toContain('CURRENT work')
     expect(system).toContain('session-level GOAL')
-    expect(system).toContain('slightly longer title')
+    expect(system).toContain('HARD LIMIT')
   })
 
   it('frames the first fold and a subsequent fold distinctly', () => {

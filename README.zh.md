@@ -62,8 +62,8 @@ Web 设置界面会渲染本插件的配置区：
 | 键 | 默认 | 含义 |
 | --- | --- | --- |
 | `enabled` | `true` | 总开关。关闭后标题不再被自动修改（插件不再做任何事）。 |
-| `targetWords` | `8` | 非 CJK 会话的标题目标词数。 |
-| `targetCjkCharacters` | `18` | CJK 会话的标题目标字数。 |
+| `targetWords` | `6` | 非 CJK 会话的标题目标词数（硬上限）。 |
+| `targetCjkCharacters` | `10` | CJK 会话的标题目标字数（硬上限）。 |
 | `provider` / `model` | 会话路由 | 可选显式 LLM 路由覆盖；默认跟随会话当前模型。 |
 | `timeoutMs` | `90000` | 每次折叠的子代理超时。 |
 

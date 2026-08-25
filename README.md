@@ -72,8 +72,8 @@ The Web settings surface renders a section for this plugin:
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `true` | Master switch. Turn it off to keep session titles untouched (the plugin then does nothing). |
-| `targetWords` | `8` | Target title length in words for non-CJK sessions. |
-| `targetCjkCharacters` | `18` | Target title length in CJK characters. |
+| `targetWords` | `6` | Target title length in words for non-CJK sessions (hard cap). |
+| `targetCjkCharacters` | `10` | Target title length in CJK characters (hard cap). |
 | `provider` / `model` | session route | Optional explicit LLM route override; default follows the session's current model. |
 | `timeoutMs` | `90000` | Per-fold subagent timeout. |
 
