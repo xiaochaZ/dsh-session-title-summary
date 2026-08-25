@@ -2,6 +2,10 @@
 
 [English](README.md) | 中文
 
+[![GitHub stars](https://img.shields.io/github/stars/xiaochaZ/dsh-session-title-summary?style=flat-square)](https://github.com/xiaochaZ/dsh-session-title-summary)
+[![License](https://img.shields.io/badge/license-BSD--3--Clause-blue?style=flat-square)](LICENSE)
+[![DSH](https://img.shields.io/badge/dsh-%E2%89%A50.1.1--rc.1-purple?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
+
 一个纯 host 端的 DeepSeek Harness (DSH) 插件：每轮对话结束后，把该轮的新工作
 （用户消息、助手回复、工具调用）折叠进**可持久化的滚动摘要**，并把会话重命名为
 反映**当前任务**的标题。完全基于官方 NPM SDK 实现——不改动 DSH 源码。
