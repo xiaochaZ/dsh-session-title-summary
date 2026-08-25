@@ -108,6 +108,7 @@ export function apply(ctx: Context, config?: Config): void {
 
   ctx.on('session/event', (session, event) => {
     if (event.type !== 'turn/end') return
+    ctx.logger.info(`[session-title-summary] turn/end received for ${session.id} (origin=${session.header.origin})`)
     fold(session)
   })
 
@@ -137,6 +138,7 @@ async function foldOnce(ctx: Context, session: Session, cfg: ResolvedConfig): Pr
   const record = readSummary(session.id)
   const sinceSeq = record?.lastSeq ?? 0
   const fresh = session.events.filter((event) => event.seq > sinceSeq)
+  ctx.logger.info(`[session-title-summary] fold: ${session.id} enabled=${cfg.enabled} origin=${session.header.origin} route=${provider}/${model} since=${sinceSeq} fresh=${fresh.length}`)
   if (fresh.length === 0) return
   const digest = digestEvents(fresh)
   const lastSeq = fresh[fresh.length - 1].seq
