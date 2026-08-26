@@ -133,7 +133,7 @@ describe('parseSummaryResult', () => {
 describe('nextSummary', () => {
   it('bounds the summary length', () => {
     const result = { summary: 'x'.repeat(5000), title: 't' }
-    expect(nextSummary('old', result).length).toBe(1500)
+    expect(nextSummary('old', result).length).toBe(1000)
   })
 })
 

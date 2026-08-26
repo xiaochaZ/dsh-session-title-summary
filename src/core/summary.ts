@@ -17,9 +17,11 @@ export interface SummaryResult {
 }
 
 /** Bounds for one generated summary (keeps the rolling file compact AND well
- * under the summarizer subagent's token budget — a 1500-char outline plus the
- * title fits comfortably inside 4096 tokens even for CJK). */
-export const SUMMARY_MAX_CHARS = 1500
+ * under the summarizer subagent's token budget. A 1000-char CJK outline plus
+ * JSON wrapper plus title stays comfortably inside even a modest output cap;
+ * structured-output JSON escaping + reasoning eat extra tokens, so smaller is
+ * safer.) */
+export const SUMMARY_MAX_CHARS = 1000
 
 /** Bound the model's total output budget before parsing. */
 export const RESULT_MAX_CHARS = 4096

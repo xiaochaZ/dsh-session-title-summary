@@ -203,8 +203,8 @@ async function callSummarizer(
       // Structured output: the child returns an object instead of hand-writing
       // JSON text, so truncation can no longer produce an unparseable blob.
       // The summary (up to SUMMARY_MAX_CHARS) plus the title needs a generous
-      // budget; 2048 was too small and cut the child off mid-output.
-      agentOptions: { maxTokens: 4096 },
+      // budget; 4096 was still cut off for CJK, so go to 8192 with margin.
+      agentOptions: { maxTokens: 8192 },
       outputSchema: {
         type: 'object',
         properties: {
