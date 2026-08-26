@@ -68,28 +68,39 @@ export function truncateTitleByWidth(title: string, maxCjkChars: number = 10): s
   const trimmed = title.trim()
   if (trimmed === '') return ''
 
-  // 1. Fits as-is.
-  if (displayWidth(trimmed) <= maxWidth) return trimmed
-
   // Split into token runs (CJK runs and non-CJK runs) so a word is never cut.
   const tokens = splitTokens(trimmed)
+  // A trailing standalone dash ("插件发布 -") has no minor topic behind it;
+  // drop it so a dangling dash never survives, even when the title fits.
+  while (tokens.length > 0 && /^[–—-]$/.test(tokens[tokens.length - 1].trim())) tokens.pop()
+  const cleaned = tokens.join('')
+  if (cleaned === '') return ''
 
-  // 2. Find the dash that joins major and minor topics.
+  // 1. Fits as-is.
+  if (displayWidth(cleaned) <= maxWidth) return cleaned
+
+  // 2. Dash-joined "major - minor" title: try to keep BOTH sides. A few budget
+  // splits are tried so a long minor topic gets a chance before either side is
+  // sacrificed. If only one side can survive, prefer the complete major topic —
+  // never a title that ends in a bare "-".
   const dashIndex = tokens.findIndex((t) => t === '-' || t === '–' || t === '—' || t === ' - ' || t.trim() === '-')
   const hasDash = dashIndex !== -1 && dashIndex < tokens.length - 1
   if (hasDash) {
     const majorTokens = tokens.slice(0, dashIndex)
     const minorTokens = tokens.slice(dashIndex + 1)
     // Reserve width for the dash and one space.
-    const dashWidth = 2 // "-" + space
-    const spaceForSides = maxWidth - dashWidth
-    const major = fitTokens(majorTokens, spaceForSides * 0.55)
-    const minor = fitTokens(minorTokens, spaceForSides * 0.45)
-    const joined = `${major} - ${minor}`.trim()
-    if (joined !== '-' && displayWidth(joined) <= maxWidth) return joined
-    // Minor got squeezed out entirely; keep a complete major topic.
+    const spaceForSides = maxWidth - 2 // "-" + one space
+    for (const majorShare of [0.55, 0.45, 0.5]) {
+      const major = fitTokens(majorTokens, spaceForSides * majorShare)
+      const minor = fitTokens(minorTokens, spaceForSides * (1 - majorShare))
+      const joined = `${major} - ${minor}`.trim()
+      if (major !== '' && minor !== '' && displayWidth(joined) <= maxWidth) return joined
+    }
+    // One side was squeezed out entirely — keep a complete major topic.
     const majorOnly = fitTokens(majorTokens, maxWidth)
     if (majorOnly !== '') return majorOnly
+    // The major alone does not fit either; keep the longest prefix of the minor.
+    return fitTokens(minorTokens, maxWidth)
   }
 
   // 3. No dash: truncate at token boundaries.
@@ -173,6 +184,8 @@ export function buildSystemPrompt(targetWords: number = 6, targetCjkCharacters: 
     `  every 2 ASCII/half-width chars count as 1 CJK (so at most ${targetCjkCharacters * 2} ASCII chars). `,
     `  For non-CJK (latin-script) titles, aim for about ${targetWords} words. `,
     '  The MAJOR topic must be SHORT (about 3-5 CJK chars or 2-3 words) so the "-" and the minor topic still fit. ',
+    '  The MINOR topic must also be SHORT (about 2-4 CJK chars or 1-2 words); if space is tight, shorten it further. ',
+    '  Never output a bare "major -" with no minor topic after the dash.',
     '  Never write a full package or file name. ',
     `  That is a HARD LIMIT of ${targetCjkCharacters} CJK characters. `,
     '  Examples within the limit: "插件修复 - 标题截断", "开发总结 - 修复".',

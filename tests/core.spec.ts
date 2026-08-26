@@ -180,6 +180,28 @@ describe('truncateTitleByWidth', () => {
     expect(displayWidth(result)).toBeLessThanOrEqual(20)
     expect(result).toBe('插件修复 - token上限')
   })
+
+  it('never leaves a dangling dash when the minor topic is squeezed out', () => {
+    // The minor is one long CJK run (18 units) that cannot coexist with the
+    // major within 20 units; the fallback must be a complete major topic,
+    // never "插件发布 -".
+    const result = truncateTitleByWidth('插件发布 - 修改仓库文档并推送', 10)
+    expect(displayWidth(result)).toBeLessThanOrEqual(20)
+    expect(result).not.toMatch(/-$/)
+    expect(result).toBe('插件发布')
+  })
+
+  it('keeps part of the minor topic instead of dropping it entirely', () => {
+    // "插件发布 - 修复token上限": the 55/45 split keeps the minor's first
+    // tokens, so the "-" structure survives with a real minor topic.
+    const result = truncateTitleByWidth('插件发布 - 修复token上限', 10)
+    expect(result).toBe('插件发布 - 修复')
+  })
+
+  it('strips a trailing bare dash with no minor topic', () => {
+    const result = truncateTitleByWidth('插件发布 -', 10)
+    expect(result).toBe('插件发布')
+  })
 })
 
 describe('store', () => {
