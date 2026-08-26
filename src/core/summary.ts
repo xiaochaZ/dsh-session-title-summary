@@ -131,7 +131,7 @@ function fitTokens(tokens: string[], maxWidth: number): string {
  * @param targetCjkCharacters - target title length in CJK characters.
  * @returns the system prompt text.
  */
-export function buildSystemPrompt(targetWords: number, targetCjkCharacters: number): string {
+export function buildSystemPrompt(targetWords: number = 6, targetCjkCharacters: number = 10): string {
   return [
     'You are a session-summary assistant for an AI coding tool.',
     'You maintain a rolling outline of EVERYTHING the user and the assistant did in this session.',
@@ -166,15 +166,16 @@ export function buildSystemPrompt(targetWords: number, targetCjkCharacters: numb
     '',
     '- "title": a concise session title reflecting the CURRENT work — the overall GOAL first, then the specific item being handled right now, ',
     '  in the same "major topic - minor topic" form. ',
-    '  Example: "开发总结功能 - 修复token", NOT a run-on sentence. ',
+    '  Example: "开发总结 - 修复", NOT a run-on sentence. ',
     '  Base it on the NEWEST work at the END of the digest, NOT on how the session started. ',
     '  Early topics are background and must NOT dominate the title. ',
-    '  WIDTH RULE: the title display width must fit 10 CJK characters — every CJK/full-width char counts 1, ',
-    '  every 2 ASCII/half-width chars count 1 (so 20 ASCII chars is the max). ',
+    `  WIDTH RULE: the title must fit ${targetCjkCharacters} CJK characters — each CJK/full-width char counts as 1 CJK, `,
+    `  every 2 ASCII/half-width chars count as 1 CJK (so at most ${targetCjkCharacters * 2} ASCII chars). `,
+    `  For non-CJK (latin-script) titles, aim for about ${targetWords} words. `,
     '  The MAJOR topic must be SHORT (about 3-5 CJK chars or 2-3 words) so the "-" and the minor topic still fit. ',
     '  Never write a full package or file name. ',
-    '  That is a HARD LIMIT of 20 display units. ',
-    '  Examples within the limit: "开发总结功能 - 修复token" (6 CJK + 2 + 5 ASCII), "插件修复 - 标题截断".',
+    `  That is a HARD LIMIT of ${targetCjkCharacters} CJK characters. `,
+    '  Examples within the limit: "插件修复 - 标题截断", "开发总结 - 修复".',
     '',
     'Rules:',
     '- Return ONLY the JSON object. No markdown fences, no commentary, no trailing text.',
