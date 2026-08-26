@@ -72,8 +72,8 @@ The Web settings surface renders a section for this plugin:
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `true` | Master switch. Turn it off to keep session titles untouched (the plugin then does nothing). |
-| `targetWords` | `6` | Target title length in words for non-CJK sessions (hard cap). |
-| `targetCjkCharacters` | `10` | Target title length in CJK characters (hard cap). |
+| `targetWords` | `6` | Prompt target for non-CJK title length (words); the enforced cap is display width. |
+| `targetCjkCharacters` | `10` | Enforced title width cap in CJK characters (2 ASCII/half-width chars = 1 CJK). |
 | `provider` / `model` | session route | Optional explicit LLM route override; default follows the session's current model. |
 | `timeoutMs` | `90000` | Per-fold subagent timeout. |
 
@@ -92,9 +92,9 @@ pnpm build
 
 ## Known limitations
 
-- The summarizer subagent has a fixed 4096-token output budget; a very long
-  summary can still be cut off (the fold then advances the cursor without
-  renaming, so the same events are not re-fed forever).
+- The summarizer subagent has a fixed 8192-token output budget and the
+  summary itself is bounded to 1000 characters; if a fold still fails, the
+  cursor advances without renaming, so the same events are not re-fed forever.
 - Explicitly user-renamed sessions are re-titled by the plugin on the next
   turn while enabled (turn the switch off to stop that).
 - Subagent child sessions are skipped; only their parent's title is managed.
