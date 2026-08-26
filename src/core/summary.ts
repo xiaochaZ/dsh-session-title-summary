@@ -54,17 +54,14 @@ export function displayWidth(text: string): number {
 }
 
 /**
- * Fit a title into a display-width budget WITHOUT breaking its meaning.
- * Information integrity is the priority: we never cut a semantic unit in
- * half. Strategy, in order:
- *   1. If the whole title fits, keep it.
- *   2. Otherwise drop the minor topic (the part after the last "-") and keep
- *      the complete major topic (the goal).
- *   3. If the major topic still does not fit, drop trailing tokens at
- *      word/space boundaries (never mid-word, never mid-CJK-word).
+ * Fit a title into a display-width budget WITHOUT breaking its meaning and
+ * WITHOUT losing the "major topic - minor topic" structure. The "-" join is
+ * preserved whenever possible; both sides are compressed at token boundaries
+ * (never mid-word, never mid-CJK-word). Only if the minor topic is squeezed
+ * to nothing do we fall back to the bare major topic.
  * @param title - the model-produced title.
  * @param maxCjkChars - maximum CJK-character count (default 10).
- * @returns a width-bounded title that stays meaningful.
+ * @returns a width-bounded title that keeps both sides when it can.
  */
 export function truncateTitleByWidth(title: string, maxCjkChars: number = 10): string {
   const maxWidth = maxCjkChars * 2
@@ -74,19 +71,36 @@ export function truncateTitleByWidth(title: string, maxCjkChars: number = 10): s
   // 1. Fits as-is.
   if (displayWidth(trimmed) <= maxWidth) return trimmed
 
-  // 2. Drop the minor topic, keep the complete major topic.
-  const dash = trimmed.lastIndexOf('-')
-  if (dash > 0) {
-    const major = trimmed.slice(0, dash).trim().replace(/[\s\-–—]+$/, '')
-    if (major !== '' && displayWidth(major) <= maxWidth) return major
+  // Split into token runs (CJK runs and non-CJK runs) so a word is never cut.
+  const tokens = splitTokens(trimmed)
+
+  // 2. Find the dash that joins major and minor topics.
+  const dashIndex = tokens.findIndex((t) => t === '-' || t === '–' || t === '—' || t === ' - ' || t.trim() === '-')
+  const hasDash = dashIndex !== -1 && dashIndex < tokens.length - 1
+  if (hasDash) {
+    const majorTokens = tokens.slice(0, dashIndex)
+    const minorTokens = tokens.slice(dashIndex + 1)
+    // Reserve width for the dash and one space.
+    const dashWidth = 2 // "-" + space
+    const spaceForSides = maxWidth - dashWidth
+    const major = fitTokens(majorTokens, spaceForSides * 0.55)
+    const minor = fitTokens(minorTokens, spaceForSides * 0.45)
+    const joined = `${major} - ${minor}`.trim()
+    if (joined !== '-' && displayWidth(joined) <= maxWidth) return joined
+    // Minor got squeezed out entirely; keep a complete major topic.
+    const majorOnly = fitTokens(majorTokens, maxWidth)
+    if (majorOnly !== '') return majorOnly
   }
 
-  // 3. Truncate at token boundaries (never mid-token).
-  // Split into CJK runs and non-CJK runs so a CJK phrase or an ASCII word is
-  // never cut in half.
+  // 3. No dash: truncate at token boundaries.
+  return fitTokens(tokens, maxWidth)
+}
+
+/** Split a string into CJK-run and non-CJK-run tokens (words never split). */
+function splitTokens(text: string): string[] {
   const tokens: string[] = []
   let current = ''
-  for (const ch of trimmed) {
+  for (const ch of text) {
     const wide = charWidth(ch) === 2
     if (current !== '' && wide !== (charWidth(current[0]) === 2)) {
       tokens.push(current)
@@ -96,7 +110,11 @@ export function truncateTitleByWidth(title: string, maxCjkChars: number = 10): s
     }
   }
   if (current !== '') tokens.push(current)
+  return tokens
+}
 
+/** Keep the longest prefix of tokens that fits the width budget. */
+function fitTokens(tokens: string[], maxWidth: number): string {
   let width = 0
   const kept: string[] = []
   for (const token of tokens) {
@@ -148,13 +166,15 @@ export function buildSystemPrompt(targetWords: number, targetCjkCharacters: numb
     '',
     '- "title": a concise session title reflecting the CURRENT work — the overall GOAL first, then the specific item being handled right now, ',
     '  in the same "major topic - minor topic" form. ',
-    '  Example: "开发标题自动总结功能 - 修复token上限", NOT a run-on sentence. ',
+    '  Example: "开发总结功能 - 修复token", NOT a run-on sentence. ',
     '  Base it on the NEWEST work at the END of the digest, NOT on how the session started. ',
     '  Early topics are background and must NOT dominate the title. ',
     '  WIDTH RULE: the title display width must fit 10 CJK characters — every CJK/full-width char counts 1, ',
     '  every 2 ASCII/half-width chars count 1 (so 20 ASCII chars is the max). ',
-    '  That is a HARD LIMIT of 20 display units. Prefer short words; never write a full package or file name. ',
-    '  Examples within the limit: "开发总结功能 - 修复token上限" (10 CJK + 5 ASCII), "插件修复 - 标题截断".',
+    '  The MAJOR topic must be SHORT (about 3-5 CJK chars or 2-3 words) so the "-" and the minor topic still fit. ',
+    '  Never write a full package or file name. ',
+    '  That is a HARD LIMIT of 20 display units. ',
+    '  Examples within the limit: "开发总结功能 - 修复token" (6 CJK + 2 + 5 ASCII), "插件修复 - 标题截断".',
     '',
     'Rules:',
     '- Return ONLY the JSON object. No markdown fences, no commentary, no trailing text.',

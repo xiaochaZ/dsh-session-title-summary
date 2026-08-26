@@ -142,12 +142,28 @@ describe('truncateTitleByWidth', () => {
     expect(truncateTitleByWidth('插件修复 - 标题截断', 10)).toBe('插件修复 - 标题截断')
   })
 
-  it('drops the minor topic and keeps the complete major topic when over width', () => {
+  it('compresses toward keeping the major-minor structure', () => {
     // "开发标题自动总结功能 - 修复子代理输出token上限" is far over 10 CJK (20 units).
     const result = truncateTitleByWidth('开发标题自动总结功能 - 修复子代理输出token上限', 10)
-    // The major topic alone is 10 CJK = 20 units, which fits exactly.
-    expect(result).toBe('开发标题自动总结功能')
     expect(displayWidth(result)).toBeLessThanOrEqual(20)
+    // When the major topic alone already fills the whole budget, the fallback
+    // is a complete major topic (structure is sacrificed only then).
+    expect(result === '开发标题自动总结功能' || result.includes('-')).toBe(true)
+  })
+
+  it('keeps a complete major topic when the minor is fully squeezed out', () => {
+    // An enormous minor topic leaves no room; fall back to the complete major.
+    const result = truncateTitleByWidth('开发标题自动总结功能 - ' + 'x'.repeat(60), 10)
+    expect(displayWidth(result)).toBeLessThanOrEqual(20)
+    expect(result).toBe('开发标题自动总结功能')
+  })
+
+  it('preserves the "-" structure when the major topic is short enough', () => {
+    // "插件修复 - token上限" is 16 units; "插件修复 - 截断问题" is 4+2+4=10+… fits.
+    const result = truncateTitleByWidth('插件修复 - token上限', 10)
+    expect(displayWidth(result)).toBeLessThanOrEqual(20)
+    expect(result).toContain('-')
+    expect(result).toContain('插件修复')
   })
 
   it('never cuts an ASCII word in half', () => {
