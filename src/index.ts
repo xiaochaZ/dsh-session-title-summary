@@ -15,7 +15,6 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-session-title'
@@ -33,7 +32,7 @@ export const name = 'session-title-summary'
 export const inject = ['sessions', 'sessionTitle', 'subagents']
 
 /** Settings namespace of the capability — spelled here and in the GUI surface. */
-export const SUMMARY_SETTINGS_NAMESPACE = settingsNamespace('dsh-session-title-summary')
+export const SUMMARY_SETTINGS_NAMESPACE = 'dsh-session-title-summary' as const
 
 /** Plugin config, validated by the same-named schemastery schema. */
 export interface Config {
@@ -59,6 +58,12 @@ export const Config: z<Config> = z.object({
   model: z.string(),
   timeoutMs: z.natural().min(1000).default(90000),
 })
+
+/** Minimal settings-provider surface used by this host plugin (kept loose so
+ * the source compiles against the published dsh-settings types either way). */
+interface SettingsSectionHost {
+  register(ns: string, schema: object, options?: { base?: Partial<Config> }): { get(): Config }
+}
 
 /** Default for the master switch (composition entry may omit it). */
 const DEFAULT_ENABLED = true
@@ -124,12 +129,15 @@ export function apply(ctx: Context, config?: Config): void {
     chains.clear()
   }, 'dsh-session-title-summary: chains')
 
-  installSettingsSection(ctx, SUMMARY_SETTINGS_NAMESPACE, Config, config ?? {}, {
-    setSource: (source) => {
-      current = source
-    },
-    onChange: () => {},
-  })
+  // dsh-settings 0.1.2+: register the namespace on the settings provider and
+  // read the live value from the returned scope (schema defaults + composition
+  // base + user overrides). When the provider is absent, fall back to the
+  // composition entry — the loop keeps working without the settings surface.
+  const settingsHost = (ctx as unknown as { settings?: SettingsSectionHost }).settings
+  if (settingsHost) {
+    const scope = settingsHost.register(SUMMARY_SETTINGS_NAMESPACE, Config, config ? { base: config } : undefined)
+    current = () => scope.get()
+  }
 }
 
 /** One rolling fold: digest new events, call the summarizer subagent, persist, rename. */
@@ -141,7 +149,8 @@ async function foldOnce(ctx: Context, agent: Agent, cfg: ResolvedConfig, turn: n
 
   const record = readSummary(session.id)
   const sinceSeq = record?.lastSeq ?? 0
-  const fresh = session.events.filter((event) => event.seq > sinceSeq)
+  // dsh-session 0.1.2+: Session.events is gone; read the immutable log snapshot.
+  const fresh = Array.from(session.snapshotEvents()).filter((event) => event.seq > sinceSeq)
   if (fresh.length === 0) return
   const digest = digestEvents(fresh)
   const lastSeq = fresh[fresh.length - 1].seq
