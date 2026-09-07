@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 [![GitHub stars](https://img.shields.io/github/stars/xiaochaZ/dsh-session-title-summary?style=flat-square)](https://github.com/xiaochaZ/dsh-session-title-summary)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue?style=flat-square)](LICENSE)
-[![DSH](https://img.shields.io/badge/dsh-%E2%89%A50.1.1--rc.1-purple?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/dsh-%E2%89%A50.1.2--rc.1-purple?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
 
 A host-only plugin for DeepSeek Harness (DSH): after every completed turn it
 summarizes the session's work in a **rolling "major topic - minor topic"

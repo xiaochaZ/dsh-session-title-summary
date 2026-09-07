@@ -4,7 +4,7 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/xiaochaZ/dsh-session-title-summary?style=flat-square)](https://github.com/xiaochaZ/dsh-session-title-summary)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue?style=flat-square)](LICENSE)
-[![DSH](https://img.shields.io/badge/dsh-%E2%89%A50.1.1--rc.1-purple?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/dsh-%E2%89%A50.1.2--rc.1-purple?style=flat-square)](https://github.com/deepseek-ai/deepseek-harness)
 
 一个纯 host 端的 DeepSeek Harness (DSH) 插件：每轮对话结束后，把会话的工作总结成
 **滚动式的"大问题 - 小问题"大纲**，并把会话重命名为"会话总体目标 - 当前正在处理的具体

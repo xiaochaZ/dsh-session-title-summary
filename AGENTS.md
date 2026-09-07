@@ -8,6 +8,10 @@ DSH 插件 session-title-summary（纯 host）：每轮对话结束后把新事�
 
 - 纯 host 插件，无 `src/client/`：设置开关经 host 注册 settings section
   （`dsh-session-title-summary` 命名空间），Web 设置界面自动渲染。
+- 设置注册用新 API（dsh-settings ≥0.1.2）：`ctx.settings.register(ns, Config, { base })`
+  返回 scope，实时值取 `scope.get()`；**不要**再写已移除的
+  `installSettingsSection` / `settingsNamespace`。`Session.events` 也已移除，
+  事件用 `session.snapshotEvents()` / `ownEvents()` 读取。
 - 触发：监听 `agent/turn-stopping`（agent 级事件，宿主插件可靠接收；`session/event`
   是 session-scoped 事件，插件 fiber 收不到）。收尾延迟 600ms 后派生子代理。
 - 总结：`subagents.start('spawn', { prompt, parent: agent, outputSchema,
