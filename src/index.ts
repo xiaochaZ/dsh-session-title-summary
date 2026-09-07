@@ -129,15 +129,17 @@ export function apply(ctx: Context, config?: Config): void {
     chains.clear()
   }, 'dsh-session-title-summary: chains')
 
-  // dsh-settings 0.1.2+: register the namespace on the settings provider and
-  // read the live value from the returned scope (schema defaults + composition
-  // base + user overrides). When the provider is absent, fall back to the
-  // composition entry — the loop keeps working without the settings surface.
-  const settingsHost = (ctx as unknown as { settings?: SettingsSectionHost }).settings
-  if (settingsHost) {
-    const scope = settingsHost.register(SUMMARY_SETTINGS_NAMESPACE, Config, config ? { base: config } : undefined)
-    current = () => scope.get()
-  }
+  // dsh-settings 0.1.2+: bind lazily via ctx.inject (mirrors dsh-doctor/dsh-ssh)
+  // so the 'settings' service is available without declaring it in inject.
+  // When the provider is absent, fall back to the composition entry - the loop
+  // keeps working without the settings surface.
+  ctx.inject(['settings'], (sctx) => {
+    const settingsHost = (sctx as unknown as { settings?: SettingsSectionHost }).settings
+    if (settingsHost) {
+      const scope = settingsHost.register(SUMMARY_SETTINGS_NAMESPACE, Config, config ? { base: config } : undefined)
+      current = () => scope.get()
+    }
+  })
 }
 
 /** One rolling fold: digest new events, call the summarizer subagent, persist, rename. */
